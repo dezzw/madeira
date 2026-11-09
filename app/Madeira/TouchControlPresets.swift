@@ -29,6 +29,127 @@ import UIKit
 //                                    built-in is only applied from the menu)
 // ============================================================================
 
+// MARK: - iPhone Duo layout (iOS 27.1+, occlusion only — not fold/division)
+//
+// Placed above `Pure preset state` so tests/host/check-control-presets.py does not
+// compile this block (see that script’s MARK split).
+
+/// Margins for custom UI on Duo-style displays. Uses SwiftUI
+/// `GeometryProxy.reservedRegions(kind:options:layoutDirectionBehavior:)` and UIKit
+/// `UIView.reservedRegions(kind:options:)` for `.occlusion` only (cameras, etc.).
+/// Per Apple, `.division` (hinge) is intentionally not queried here.
+///
+/// Occlusion margin rule: for each region intersecting the layout `CGRect(origin: .zero, size:)`,
+/// compute the margin each edge would need to clear it (`top: maxY - safeTop`, etc., each ≥ 0).
+/// Skip regions that do not intersect. If **min** of the four margins is 0, the safe area already
+/// clears the region from at least one edge — skip the region. Otherwise attribute it to the edge
+/// with the **smallest** required margin (ties: top, bottom, leading, trailing). Clamp unchanged.
+enum MadeiraDuoUILayout {
+    /// Extra padding beyond what SwiftUI already applies from the safe area on
+    /// iOS 27.1+; zero on earlier OS versions (preserves existing layout).
+    static func contentPadding(geometry geo: GeometryProxy) -> EdgeInsets {
+        guard #available(iOS 27.1, *) else { return EdgeInsets() }
+        let safe = geo.safeAreaInsets
+        let extra = occlusionExtraMargins(
+            size: geo.size, safeTop: safe.top, safeBottom: safe.bottom,
+            safeLeading: safe.leading, safeTrailing: safe.trailing,
+            frames: geo.reservedRegions(kind: .occlusion).map(\.frame))
+        return EdgeInsets(top: extra.top, leading: extra.leading,
+                          bottom: extra.bottom, trailing: extra.trailing)
+    }
+
+    /// Safe-area insets plus Duo occlusion margins, for control layout and presets.
+    static func presetScreenInsets(geometry geo: GeometryProxy) -> EdgeInsets {
+        let safe = geo.safeAreaInsets
+        guard #available(iOS 27.1, *) else { return safe }
+        let extra = occlusionExtraMargins(
+            size: geo.size, safeTop: safe.top, safeBottom: safe.bottom,
+            safeLeading: safe.leading, safeTrailing: safe.trailing,
+            frames: geo.reservedRegions(kind: .occlusion).map(\.frame))
+        return EdgeInsets(top: safe.top + extra.top, leading: safe.leading + extra.leading,
+                          bottom: safe.bottom + extra.bottom, trailing: safe.trailing + extra.trailing)
+    }
+
+    private enum OcclusionEdge { case top, bottom, leading, trailing }
+
+    @available(iOS 27.1, *)
+    private static func requiredMargins(
+        frame: CGRect, size: CGSize,
+        safeTop: CGFloat, safeBottom: CGFloat, safeLeading: CGFloat, safeTrailing: CGFloat
+    ) -> (top: CGFloat, bottom: CGFloat, leading: CGFloat, trailing: CGFloat) {
+        (
+            max(0, frame.maxY - safeTop),
+            max(0, size.height - frame.minY - safeBottom),
+            max(0, frame.maxX - safeLeading),
+            max(0, size.width - frame.minX - safeTrailing)
+        )
+    }
+
+    @available(iOS 27.1, *)
+    private static func occlusionEdge(
+        margins: (top: CGFloat, bottom: CGFloat, leading: CGFloat, trailing: CGFloat)
+    ) -> OcclusionEdge? {
+        let (t, b, l, r) = margins
+        let best = min(t, b, l, r)
+        guard best > 0 else { return nil }
+        if t == best { return .top }
+        if b == best { return .bottom }
+        if l == best { return .leading }
+        return .trailing
+    }
+
+    @available(iOS 27.1, *)
+    private static func occlusionExtraMargins(
+        size: CGSize, safeTop: CGFloat, safeBottom: CGFloat,
+        safeLeading: CGFloat, safeTrailing: CGFloat, frames: [CGRect]
+    ) -> (top: CGFloat, leading: CGFloat, bottom: CGFloat, trailing: CGFloat) {
+        var top: CGFloat = 0, leading: CGFloat = 0, bottom: CGFloat = 0, trailing: CGFloat = 0
+        let capH = size.height / 2, capW = size.width / 2
+        let layout = CGRect(origin: .zero, size: size)
+        for frame in frames {
+            guard frame.intersects(layout), !frame.isNull, !frame.isEmpty else { continue }
+            let req = requiredMargins(frame: frame, size: size, safeTop: safeTop, safeBottom: safeBottom,
+                                      safeLeading: safeLeading, safeTrailing: safeTrailing)
+            guard let edge = occlusionEdge(margins: req) else { continue }
+            switch edge {
+            case .top:
+                top = max(top, min(req.top, capH))
+            case .bottom:
+                bottom = max(bottom, min(req.bottom, capH))
+            case .leading:
+                leading = max(leading, min(req.leading, capW))
+            case .trailing:
+                trailing = max(trailing, min(req.trailing, capW))
+            }
+        }
+        return (top, leading, bottom, trailing)
+    }
+
+    /// Landscape screen metrics for presets: root view bounds + merged insets.
+    static func currentPresetScreen() -> ControlPresetScreen {
+        let window = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).first { $0.isKeyWindow }
+        guard let window, let view = window.rootViewController?.view else { return .referencePhone }
+        let b = view.bounds.size
+        guard b.width > 0 else { return .referencePhone }
+        var insets = view.safeAreaInsets
+        if #available(iOS 27.1, *) {
+            let extra = occlusionExtraMargins(
+                size: b, safeTop: insets.top, safeBottom: insets.bottom,
+                safeLeading: insets.left, safeTrailing: insets.right,
+                frames: view.reservedRegions(kind: .occlusion).map(\.frame))
+            insets.top += extra.top
+            insets.bottom += extra.bottom
+            insets.left += extra.leading
+            insets.right += extra.trailing
+        }
+        let s = ControlPresetScreen(width: Double(b.width), height: Double(b.height),
+                                    left: Double(insets.left), right: Double(insets.right),
+                                    top: Double(insets.top), bottom: Double(insets.bottom))
+        return s.landscape
+    }
+}
+
 // MARK: - Pure preset state (also compiled by the host regression test)
 
 struct ControlPreset: Codable, Identifiable, Equatable {
@@ -439,14 +560,7 @@ final class ControlPresetsModel: ObservableObject {
 
     /// The landscape screen the overlay is laid out on.
     static func currentScreen() -> ControlPresetScreen {
-        let window = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows).first { $0.isKeyWindow }
-        guard let window, window.bounds.width > 0 else { return .referencePhone }
-        let i = window.safeAreaInsets
-        let s = ControlPresetScreen(width: Double(window.bounds.width), height: Double(window.bounds.height),
-                                    left: Double(i.left), right: Double(i.right),
-                                    top: Double(i.top), bottom: Double(i.bottom))
-        return s.landscape
+        MadeiraDuoUILayout.currentPresetScreen()
     }
 
     /// Never over a layout the user already has: only when no controls file existed.
