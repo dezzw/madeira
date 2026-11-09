@@ -1417,7 +1417,7 @@ struct ContentView: View {
                 if landscape {
                     landscapeBody
                 } else {
-                    portraitBody
+                    portraitBody(geometry: geo)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -1457,8 +1457,9 @@ struct ContentView: View {
 
     /// Portrait: classic tooling layout — header, badges, 240pt game strip,
     /// key row, action buttons, log console.
-    private var portraitBody: some View {
-        VStack(spacing: 0) {
+    private func portraitBody(geometry geo: GeometryProxy) -> some View {
+        let duoPad = MadeiraDuoUILayout.contentPadding(geometry: geo)
+        return VStack(spacing: 0) {
             // Readouts sit ABOVE the game strip, closest to the surface they
             // describe: entitlement indicators, then the present/FPS readout,
             // then the surface itself. (Only the KEY row stays below — it is
@@ -1525,6 +1526,10 @@ struct ContentView: View {
             Divider()
             logConsole
         }
+        .padding(.top, duoPad.top)
+        .padding(.leading, duoPad.leading)
+        .padding(.trailing, duoPad.trailing)
+        .padding(.bottom, duoPad.bottom)
     }
 
     /// Landscape: game mode. Full-height 4:3 surface centered (aspect-fit
@@ -4297,6 +4302,8 @@ struct TouchControlsOverlay: View {
     @ObservedObject private var library = LibraryModel.shared
     @ObservedObject private var zones = GestureZonesModel.shared
     @State private var pinchBase: Double?
+    /// Duo occlusion padding for `topBar`, refreshed from the overlay `GeometryReader`.
+    @State private var duoBarPad = EdgeInsets()
 
     var body: some View {
         GeometryReader { geo in
@@ -4331,8 +4338,9 @@ struct TouchControlsOverlay: View {
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             .contentShape(Rectangle())
             .gesture(scalePinch, including: m.editing ? .all : .subviews)
-            .onAppear { applyDefaultLayout(geo); configureGamepad(landscape: landscape) }
-            .onChange(of: geo.size) { _, _ in applyDefaultLayout(geo); configureGamepad(landscape: landscape) }
+            .onAppear { syncOverlayGeometry(geo); applyDefaultLayout(geo); configureGamepad(landscape: landscape) }
+            .onChange(of: geo.size) { _, _ in syncOverlayGeometry(geo); applyDefaultLayout(geo); configureGamepad(landscape: landscape) }
+            .onChange(of: geo.safeAreaInsets) { _, _ in syncOverlayGeometry(geo) }
             .onChange(of: m.controls) { _, _ in configureGamepad(landscape: landscape) }
             .onChange(of: m.visible) { _, _ in configureGamepad(landscape: landscape) }
             .onChange(of: zones.padZoneIDs) { _, _ in configureGamepad(landscape: landscape) }
@@ -4404,7 +4412,7 @@ struct TouchControlsOverlay: View {
     /// layout on the first landscape overlay, laid out for this screen (never over an existing controls file).
     private func applyDefaultLayout(_ geo: GeometryProxy) {
         guard m.needsDefaultLayout, geo.size.width > geo.size.height else { return }
-        let i = geo.safeAreaInsets
+        let i = MadeiraDuoUILayout.presetScreenInsets(geometry: geo)
         ControlPresetsModel.shared.applyDefaultIfNeeded(screen: ControlPresetScreen(
             width: Double(geo.size.width), height: Double(geo.size.height),
             left: Double(i.leading), right: Double(i.trailing),
@@ -4421,8 +4429,13 @@ struct TouchControlsOverlay: View {
         ControlPresetsModel.enabled && m.visible && !m.editing
     }
 
+    private func syncOverlayGeometry(_ geo: GeometryProxy) {
+        duoBarPad = MadeiraDuoUILayout.contentPadding(geometry: geo)
+    }
+
     private var topBar: some View {
-        HStack(spacing: 10) {
+        let side = max(duoBarPad.leading, duoBarPad.trailing)
+        return HStack(spacing: 10) {
             if m.editing && Self.editorDone {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -4481,7 +4494,8 @@ struct TouchControlsOverlay: View {
                 }
             }
         }
-        .padding(.top, 10)
+        .padding(.top, 10 + duoBarPad.top)
+        .padding(.horizontal, side)
         .animation(.easeInOut(duration: 0.22), value: m.editing)
     }
 
