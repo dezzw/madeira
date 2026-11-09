@@ -4349,7 +4349,7 @@ struct TouchControlsOverlay: View {
             .onChange(of: geo.size) { _, _ in applyDefaultLayout(geo); configureGamepad(landscape: landscape) }
             // Tech Talk 111463: occlusion via GeometryProxy; iOS 16+ onGeometryChange (Apple docs).
             .onGeometryChange(for: EdgeInsets.self,
-                              of: { MadeiraDuoUILayout.contentPadding(geometry: $0) }) { _, new in
+                              of: { MadeiraDuoUILayout.contentPadding(geometry: $0) }) { new in
                 duoBarPad = new
                 m.topBarPad = new
             }
