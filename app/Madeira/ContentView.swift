@@ -4137,6 +4137,8 @@ final class TouchControlsModel: ObservableObject {
     /// ml1970: no controls file existed at launch, so the built-in controller
     /// layout may be applied once (ControlPresetsModel.applyDefaultIfNeeded).
     var needsDefaultLayout = false
+    /// Duo occlusion padding for the overlay top bar (hit-test only; not published).
+    var topBarPad = EdgeInsets()
     private var editBaseline: [TouchControl] = []
     private var editZoneBaseline: [GestureZone] = []
 
@@ -4213,7 +4215,10 @@ final class TouchControlsModel: ObservableObject {
         // costs a build.
         let buttons: CGFloat = (TouchControlsOverlay.showsLayoutMenu(self) ? 3 : 2) + 1
         let barW: CGFloat = buttons * 44 + (buttons - 1) * 10
-        if topBar, CGRect(x: bounds.midX - barW / 2 - 10, y: 0,
+        let pad = topBarPad
+        let innerW = bounds.width - pad.leading - pad.trailing
+        let barMidX = pad.leading + innerW / 2
+        if topBar, CGRect(x: barMidX - barW / 2 - 10, y: pad.top,
                           width: barW + 20, height: 68).contains(p) { return true }
         guard visible else { return false }
         for c in controls {
@@ -4302,7 +4307,6 @@ struct TouchControlsOverlay: View {
     @ObservedObject private var library = LibraryModel.shared
     @ObservedObject private var zones = GestureZonesModel.shared
     @State private var pinchBase: Double?
-    /// Duo occlusion padding for `topBar`, refreshed from the overlay `GeometryReader`.
     @State private var duoBarPad = EdgeInsets()
 
     var body: some View {
@@ -4338,9 +4342,17 @@ struct TouchControlsOverlay: View {
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             .contentShape(Rectangle())
             .gesture(scalePinch, including: m.editing ? .all : .subviews)
-            .onAppear { syncOverlayGeometry(geo); applyDefaultLayout(geo); configureGamepad(landscape: landscape) }
-            .onChange(of: geo.size) { _, _ in syncOverlayGeometry(geo); applyDefaultLayout(geo); configureGamepad(landscape: landscape) }
-            .onChange(of: geo.safeAreaInsets) { _, _ in syncOverlayGeometry(geo) }
+            .onAppear {
+                syncDuoBarPadding(from: geo)
+                applyDefaultLayout(geo); configureGamepad(landscape: landscape)
+            }
+            .onChange(of: geo.size) { _, _ in applyDefaultLayout(geo); configureGamepad(landscape: landscape) }
+            // Tech Talk 111463: occlusion via GeometryProxy; iOS 16+ onGeometryChange (Apple docs).
+            .onGeometryChange(for: EdgeInsets.self,
+                              of: { MadeiraDuoUILayout.contentPadding(geometry: $0) }) { _, new in
+                duoBarPad = new
+                m.topBarPad = new
+            }
             .onChange(of: m.controls) { _, _ in configureGamepad(landscape: landscape) }
             .onChange(of: m.visible) { _, _ in configureGamepad(landscape: landscape) }
             .onChange(of: zones.padZoneIDs) { _, _ in configureGamepad(landscape: landscape) }
@@ -4429,13 +4441,14 @@ struct TouchControlsOverlay: View {
         ControlPresetsModel.enabled && m.visible && !m.editing
     }
 
-    private func syncOverlayGeometry(_ geo: GeometryProxy) {
-        duoBarPad = MadeiraDuoUILayout.contentPadding(geometry: geo)
+    private func syncDuoBarPadding(from geo: GeometryProxy) {
+        let pad = MadeiraDuoUILayout.contentPadding(geometry: geo)
+        duoBarPad = pad
+        m.topBarPad = pad
     }
 
     private var topBar: some View {
-        let side = max(duoBarPad.leading, duoBarPad.trailing)
-        return HStack(spacing: 10) {
+        HStack(spacing: 10) {
             if m.editing && Self.editorDone {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -4495,7 +4508,8 @@ struct TouchControlsOverlay: View {
             }
         }
         .padding(.top, 10 + duoBarPad.top)
-        .padding(.horizontal, side)
+        .padding(.leading, duoBarPad.leading)
+        .padding(.trailing, duoBarPad.trailing)
         .animation(.easeInOut(duration: 0.22), value: m.editing)
     }
 

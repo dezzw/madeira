@@ -70,17 +70,6 @@ enum MadeiraDuoUILayout {
                           bottom: safe.bottom + extra.bottom, trailing: safe.trailing + extra.trailing)
     }
 
-    /// Leading/trailing occlusion margin for the landscape overlay top bar (points).
-    static func overlayHorizontalInset(geometry geo: GeometryProxy) -> CGFloat {
-        let pad = contentPadding(geometry: geo)
-        return max(pad.leading, pad.trailing)
-    }
-
-    /// Additional top inset for overlay chrome below status bar / Duo toolbar (points).
-    static func overlayTopInset(geometry geo: GeometryProxy) -> CGFloat {
-        contentPadding(geometry: geo).top
-    }
-
     private enum OcclusionEdge { case top, bottom, leading, trailing }
 
     @available(iOS 27.1, *)
