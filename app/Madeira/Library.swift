@@ -3381,30 +3381,24 @@ struct LibraryView: View {
         // glass selection slides between the tabs and follows a drag. Icons only; the
         // names stay for VoiceOver.
         TabView(selection: Binding(get: { tab }, set: { switchTab(to: $0) })) {
-            // The card layouts: the zoomable page or the original one (LibraryGridArm).
-            Group { if LibraryGridArm.zoomable(setting: zoomableGrid, layout: layout) { zoomableLibrary } else { library } }
-                .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            NavigationStack {
+                // The card layouts: the zoomable page or the original one (LibraryGridArm).
+                Group { if LibraryGridArm.zoomable(setting: zoomableGrid, layout: layout) { zoomableLibrary } else { library } }
+                    .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+                    .navigationTitle("")
+                    .toolbar { LibraryLargeTitle(); libraryToolbar }
+                    .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: L("Search your library"))
+            }
                 .tabItem { Image(systemName: "square.grid.2x2.fill").accessibilityLabel("Library") }
                 .tag(0)
-            settingsTab
+            NavigationStack {
+                settingsTab
+                    .navigationTitle("")
+                    .toolbar { LibraryLargeTitle(); settingsToolbar }
+                    .searchable(text: $settingsSearch, placement: .navigationBarDrawer(displayMode: .always), prompt: L("Search settings"))
+            }
                 .tabItem { Image(systemName: "gearshape.fill").accessibilityLabel("Settings") }
                 .tag(1)
-        }
-        // The system search field (Liquid Glass on iOS 26) in the title's place, left
-        // of the library's buttons, on both tabs; each tab keeps its own text.
-        .background(LibraryNavSearch(text: tab == 0 ? $search : $settingsSearch,
-                                     placeholder: tab == 0 ? L("Search your library") : L("Search settings"))
-            .frame(width: 0, height: 0))
-        // Each tab is hosted by the tab bar controller, so a toolbar set inside a tab
-        // would not reach the navigation bar: the library's lives here.
-        // The title is a large leading toolbar item, level with the library's
-        // buttons like an App Store tab title; the bar's centred one is cleared.
-        // The trailing glass group changes with the tab (switchTab animates it),
-        // which iOS 26 draws as a Liquid Glass morph between the two.
-        .navigationTitle("")
-        .toolbar {
-            LibraryLargeTitle()
-            if tab == 0 { libraryToolbar } else { settingsToolbar }
         }
         // On the tab view, not inside one tab's page: an alert attached to the Library
         // page cannot present while Settings is showing, so an error raised there (its
@@ -3477,7 +3471,7 @@ struct LibraryView: View {
                 }
             } label: { Label("Library options", systemImage: "line.3.horizontal.decrease") }
         }
-        ToolbarItem(placement: .topBarTrailing) { Button { browser = true } label: { Label("Add executable", systemImage: "plus") } }
+        ToolbarItem(placement: .topBarTrailing) { Button { LogStore.shared.log("[pn2] add tapped"); browser = true } label: { Label("Add executable", systemImage: "plus") } }
     }
     @ToolbarContentBuilder private var settingsToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
@@ -3865,6 +3859,7 @@ private struct LibrarySheets: ViewModifier {
                     // madeira-bcd: the page shows the entry as stored, with its recommended settings.
                     model.save(entry); browser = false; selected = model.entries.first { $0.id == entry.id } ?? entry
                 } }
+                .onAppear { LogStore.shared.log("[pn2] browser sheet appeared") }
             }
             .sheet(item: $selected) { entry in
                 // The details page stays up until the session's starting screen takes over (or an error needs the library's alert).
@@ -3876,6 +3871,7 @@ private struct LibrarySheets: ViewModifier {
                         if selected?.id == entry.id, model.startingJIT != entry.id { selected = nil }
                     }
                 })
+                .onAppear { LogStore.shared.log("[pn2] detail sheet appeared") }
             }
             .onChange(of: model.current) { _, current in if current != nil { selected = nil } }
             .onChange(of: model.error) { _, error in if error != nil { selected = nil } }

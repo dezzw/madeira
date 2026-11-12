@@ -1326,6 +1326,8 @@ struct ContentView: View {
                 } else if library.enabled {
                     LibraryView(play: launchLibraryEntry, enableJIT: enableJIT,
                                 startDock: { startDock($0, compactPool: $1) })
+                        .toolbar(.hidden, for: .navigationBar)
+                        .libraryHorizontalBars()
                 } else {
                     developerBody
                 }
@@ -1384,6 +1386,7 @@ struct ContentView: View {
                 entitlements = EntitlementStatus.check()
                 logEntitlementStatus()
                 logStore.log("[build] \(BuildStamp.text)")
+                LogStore.shared.log("[pn2] build=pr3-fix")
                 DeviceDiagnostics.logStartup()
                 DockOffline.begin()
                 FrontendChoice.logStartup()
@@ -5091,5 +5094,15 @@ struct MappingPanel: View {
                     .fill(.white.opacity(on ? 0.36 : 0.12)))
         }
         .buttonStyle(.plain)
+    }
+}
+extension View {
+    @ViewBuilder
+    func libraryHorizontalBars() -> some View {
+#if compiler(>=6.4)
+        if #available(iOS 27.1, *) { toolbarVerticalBehavior(.disabled) } else { self }
+#else
+        self
+#endif
     }
 }
