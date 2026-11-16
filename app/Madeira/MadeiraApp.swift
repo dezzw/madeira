@@ -33,6 +33,7 @@ struct MadeiraApp: App {
             ContentView()
                 .background(InteractionFrameRateInstaller())   // touch frame-rate request (New library grid)
                 .modifier(ClaimGamepadEvents())
+                .modifier(FoldableFillsWindow())
                 .onAppear {
                     ExternalDrives.shared.mountAll()
                     GamepadInput.shared.start()
@@ -50,5 +51,26 @@ struct MadeiraApp: App {
                     ShortcutRouter.shared.handle(url)
                 }
         }
+    }
+}
+
+/// iPhone Duo: the root fills the window, safe area included. The view
+/// handlesGameControllerEvents wraps the root in is sized to the safe area, and
+/// on the Duo the system draws the toolbar's buttons and the tab bar in the
+/// right-hand status column (the safe area's right inset), outside it: drawn,
+/// but every tap there missed. The navigation stack inside keeps the safe area
+/// through UIKit. Other devices keep the layout they had: this was seen only on
+/// the Duo, which is the only device it was tested on.
+/// (Taken from upstream willfaust/Madeira#624 by leewsimpson; mechanism as stated by its author, not verified here.)
+struct FoldableFillsWindow: ViewModifier {
+    /// Model codes of the foldable iPhones (iPhone19,4: iPhone Duo).
+    static let models: Set<String> = ["iPhone19,4"]
+    static let active: Bool = {
+        let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]
+        return models.contains(simulated ?? DeviceDiagnostics.machine())
+    }()
+
+    func body(content: Content) -> some View {
+        if Self.active { content.ignoresSafeArea() } else { content }
     }
 }
