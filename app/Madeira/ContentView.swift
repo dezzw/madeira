@@ -1417,7 +1417,7 @@ struct ContentView: View {
                 if landscape {
                     landscapeBody
                 } else {
-                    portraitBody
+                    portraitBody(geometry: geo)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -1457,8 +1457,9 @@ struct ContentView: View {
 
     /// Portrait: classic tooling layout — header, badges, 240pt game strip,
     /// key row, action buttons, log console.
-    private var portraitBody: some View {
-        VStack(spacing: 0) {
+    private func portraitBody(geometry geo: GeometryProxy) -> some View {
+        let duoPad = MadeiraDuoUILayout.contentPadding(geometry: geo)
+        return VStack(spacing: 0) {
             // Readouts sit ABOVE the game strip, closest to the surface they
             // describe: entitlement indicators, then the present/FPS readout,
             // then the surface itself. (Only the KEY row stays below — it is
@@ -1525,6 +1526,10 @@ struct ContentView: View {
             Divider()
             logConsole
         }
+        .padding(.top, duoPad.top)
+        .padding(.leading, duoPad.leading)
+        .padding(.trailing, duoPad.trailing)
+        .padding(.bottom, duoPad.bottom)
     }
 
     /// Landscape: game mode. Full-height 4:3 surface centered (aspect-fit
@@ -4132,6 +4137,8 @@ final class TouchControlsModel: ObservableObject {
     /// ml1970: no controls file existed at launch, so the built-in controller
     /// layout may be applied once (ControlPresetsModel.applyDefaultIfNeeded).
     var needsDefaultLayout = false
+    /// Duo occlusion padding for the overlay top bar (hit-test only; not published).
+    var topBarPad = EdgeInsets()
     private var editBaseline: [TouchControl] = []
     private var editZoneBaseline: [GestureZone] = []
 
@@ -4208,7 +4215,10 @@ final class TouchControlsModel: ObservableObject {
         // costs a build.
         let buttons: CGFloat = (TouchControlsOverlay.showsLayoutMenu(self) ? 3 : 2) + 1
         let barW: CGFloat = buttons * 44 + (buttons - 1) * 10
-        if topBar, CGRect(x: bounds.midX - barW / 2 - 10, y: 0,
+        let pad = topBarPad
+        let innerW = bounds.width - pad.leading - pad.trailing
+        let barMidX = pad.leading + innerW / 2
+        if topBar, CGRect(x: barMidX - barW / 2 - 10, y: pad.top,
                           width: barW + 20, height: 68).contains(p) { return true }
         guard visible else { return false }
         for c in controls {
@@ -4297,6 +4307,7 @@ struct TouchControlsOverlay: View {
     @ObservedObject private var library = LibraryModel.shared
     @ObservedObject private var zones = GestureZonesModel.shared
     @State private var pinchBase: Double?
+    @State private var duoBarPad = EdgeInsets()
 
     var body: some View {
         GeometryReader { geo in
@@ -4331,8 +4342,17 @@ struct TouchControlsOverlay: View {
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             .contentShape(Rectangle())
             .gesture(scalePinch, including: m.editing ? .all : .subviews)
-            .onAppear { applyDefaultLayout(geo); configureGamepad(landscape: landscape) }
+            .onAppear {
+                syncDuoBarPadding(from: geo)
+                applyDefaultLayout(geo); configureGamepad(landscape: landscape)
+            }
             .onChange(of: geo.size) { _, _ in applyDefaultLayout(geo); configureGamepad(landscape: landscape) }
+            // Tech Talk 111463: occlusion via GeometryProxy; iOS 16+ onGeometryChange (Apple docs).
+            .onGeometryChange(for: EdgeInsets.self,
+                              of: { MadeiraDuoUILayout.contentPadding(geometry: $0) }) { new in
+                duoBarPad = new
+                m.topBarPad = new
+            }
             .onChange(of: m.controls) { _, _ in configureGamepad(landscape: landscape) }
             .onChange(of: m.visible) { _, _ in configureGamepad(landscape: landscape) }
             .onChange(of: zones.padZoneIDs) { _, _ in configureGamepad(landscape: landscape) }
@@ -4404,7 +4424,7 @@ struct TouchControlsOverlay: View {
     /// layout on the first landscape overlay, laid out for this screen (never over an existing controls file).
     private func applyDefaultLayout(_ geo: GeometryProxy) {
         guard m.needsDefaultLayout, geo.size.width > geo.size.height else { return }
-        let i = geo.safeAreaInsets
+        let i = MadeiraDuoUILayout.presetScreenInsets(geometry: geo)
         ControlPresetsModel.shared.applyDefaultIfNeeded(screen: ControlPresetScreen(
             width: Double(geo.size.width), height: Double(geo.size.height),
             left: Double(i.leading), right: Double(i.trailing),
@@ -4419,6 +4439,12 @@ struct TouchControlsOverlay: View {
     /// ml1970: the layout menu, offered only while touch controls are shown.
     static func showsLayoutMenu(_ m: TouchControlsModel) -> Bool {
         ControlPresetsModel.enabled && m.visible && !m.editing
+    }
+
+    private func syncDuoBarPadding(from geo: GeometryProxy) {
+        let pad = MadeiraDuoUILayout.contentPadding(geometry: geo)
+        duoBarPad = pad
+        m.topBarPad = pad
     }
 
     private var topBar: some View {
@@ -4481,7 +4507,9 @@ struct TouchControlsOverlay: View {
                 }
             }
         }
-        .padding(.top, 10)
+        .padding(.top, 10 + duoBarPad.top)
+        .padding(.leading, duoBarPad.leading)
+        .padding(.trailing, duoBarPad.trailing)
         .animation(.easeInOut(duration: 0.22), value: m.editing)
     }
 
